@@ -4,8 +4,18 @@
 
 #include "framework.h"
 #include "netavailw.h"
+#include <iphlpapi.h>
+#include <icmpapi.h>
+#include <stdio.h>
+#include <fstream>
 #include <string>
 #include <time.h>
+
+#define _WINSOCK_DEPRECATED_NO_WARNINGS 
+#include <winsock2.h>
+
+#pragma comment(lib, "iphlpapi.lib")
+#pragma comment(lib, "ws2_32.lib")
 
 #define MAX_LOADSTRING 100
 
@@ -52,12 +62,93 @@ std::string GetTimeStr()
     return std::string(sztime);
 }
 
+void LogToFile(std::string msg)
+{
+    std::string fullMsg = GetTimeStr() + " " + msg;
+    std::ofstream file;
+
+    // Open the file in append mode
+    file.open("netavailw.log", std::ios_base::app);
+
+    if (file.is_open()) {
+        // Write the string to the file
+        file << fullMsg << std::endl;
+
+        // Close the file
+        file.close();
+    } else {
+        // error
+    }
+}
+
+DWORD Ping(const char* address)
+{
+    HANDLE hIcmp;
+    unsigned long ipaddr = INADDR_NONE;
+    DWORD dwRetVal = 0;
+    char SendData[32] = "Data Buffer";
+    LPVOID ReplyBuffer;
+    DWORD ReplySize = 0;
+
+    ipaddr = inet_addr(address);
+    if (ipaddr == INADDR_NONE) {
+        printf("inet_addr failed, IP: %s\n", address);
+        return 1;
+    }
+
+    hIcmp = IcmpCreateFile();
+    if (hIcmp == INVALID_HANDLE_VALUE) {
+        printf("\tUnable to open handle.\n");
+        return 1;
+    }
+
+    ReplySize = sizeof(ICMP_ECHO_REPLY) + sizeof(SendData);
+    ReplyBuffer = (VOID*)malloc(ReplySize);
+    if (ReplyBuffer == NULL) {
+        printf("\tUnable to allocate memory\n");
+        return 1;
+    }
+
+    dwRetVal = IcmpSendEcho(hIcmp, ipaddr, SendData, sizeof(SendData),
+        NULL, ReplyBuffer, ReplySize, 1000);
+    if (dwRetVal != 0) {
+        PICMP_ECHO_REPLY pEchoReply = (PICMP_ECHO_REPLY)ReplyBuffer;
+        struct in_addr ReplyAddr;
+        ReplyAddr.S_un.S_addr = pEchoReply->Address;
+        printf("\tSent icmp message to %s\n", address);
+        if (dwRetVal > 0) {
+            printf("\tReceived %ld icmp message responses\n", dwRetVal);
+            printf("\tInformation from the first response:\n");
+            printf("\t  Received from %s\n", inet_ntoa(ReplyAddr));
+            printf("\t  Roundtrip time = %ld milliseconds\n", pEchoReply->RoundTripTime);
+            DWORD roundTripTime = pEchoReply->RoundTripTime;
+            free(ReplyBuffer);
+            IcmpCloseHandle(hIcmp);
+            return roundTripTime;
+        } else {
+            printf("\tCall to IcmpSendEcho failed.\n");
+            free(ReplyBuffer);
+            IcmpCloseHandle(hIcmp);
+            return 1;
+        }
+    } else {
+        printf("\tCall to IcmpSendEcho failed.\n");
+        free(ReplyBuffer);
+        IcmpCloseHandle(hIcmp);
+        return 1;
+    }
+}
+
 DWORD WINAPI PingThreadFunction(LPVOID lpParam)
 {
     do {
-        std::string msg = GetTimeStr();
+        DWORD msPing = Ping("8.8.8.8");
+        char szbuf[64];
+        sprintf_s(szbuf, "%ld ms", msPing);
+        std::string msg = GetTimeStr() + "  " + std::string(szbuf);
         SetDlgItemText(hDlgGlobal, IDC_STATIC_PINGMS, msg.c_str());
-        Sleep(4000);
+        LogToFile(std::string(szbuf));
+        Sleep(10000);
     } while (true);
 
     return 0;
