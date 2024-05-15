@@ -33,8 +33,8 @@ INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
 struct struct_settings {
     std::string strRemoteIP = "8.8.8.8";
-    long        msBadPing = 50;
-    DWORD       msSleep = 5000;
+    long        msBadPing = 400;
+    DWORD       msSleep = 10000;
 } Settings;
 
 
