@@ -31,6 +31,12 @@ BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
+struct struct_settings {
+    std::string strRemoteIP = "8.8.8.8";
+    long        msBadPing = 50;
+    DWORD       msSleep = 5000;
+} Settings;
+
 
 // Message handler for about box.
 INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
@@ -81,7 +87,14 @@ void LogToFile(std::string msg)
     }
 }
 
-DWORD Ping(const char* address)
+void SetErrorText(const char* msg)
+{
+    //std::string strFull = GetTimeStr() + " ";
+    //strFull += msg;
+    SetDlgItemText(hDlgGlobal, IDC_STATIC_ERROR, msg);
+}
+
+long Ping(const char* address, std::string &strError)
 {
     HANDLE hIcmp;
     unsigned long ipaddr = INADDR_NONE;
@@ -92,21 +105,22 @@ DWORD Ping(const char* address)
 
     ipaddr = inet_addr(address);
     if (ipaddr == INADDR_NONE) {
-        printf("inet_addr failed, IP: %s\n", address);
-        return 1;
+        strError = "inet_addr failed; IP: ";
+        strError += address;
+        return -1;
     }
 
     hIcmp = IcmpCreateFile();
     if (hIcmp == INVALID_HANDLE_VALUE) {
-        printf("\tUnable to open handle.\n");
-        return 1;
+        strError = "Unable to open handle.";
+        return -1;
     }
 
     ReplySize = sizeof(ICMP_ECHO_REPLY) + sizeof(SendData);
     ReplyBuffer = (VOID*)malloc(ReplySize);
     if (ReplyBuffer == NULL) {
-        printf("\tUnable to allocate memory\n");
-        return 1;
+        strError = "Unable to allocate memory";
+        return -1;
     }
 
     dwRetVal = IcmpSendEcho(hIcmp, ipaddr, SendData, sizeof(SendData),
@@ -117,38 +131,53 @@ DWORD Ping(const char* address)
         ReplyAddr.S_un.S_addr = pEchoReply->Address;
         printf("\tSent icmp message to %s\n", address);
         if (dwRetVal > 0) {
-            printf("\tReceived %ld icmp message responses\n", dwRetVal);
-            printf("\tInformation from the first response:\n");
-            printf("\t  Received from %s\n", inet_ntoa(ReplyAddr));
-            printf("\t  Roundtrip time = %ld milliseconds\n", pEchoReply->RoundTripTime);
-            DWORD roundTripTime = pEchoReply->RoundTripTime;
+            //printf("\tReceived %ld icmp message responses\n", dwRetVal);
+            //printf("\tInformation from the first response:\n");
+            //printf("\t  Received from %s\n", inet_ntoa(ReplyAddr));
+            //printf("\t  Roundtrip time = %ld milliseconds\n", pEchoReply->RoundTripTime);
+            long roundTripTime = pEchoReply->RoundTripTime;
             free(ReplyBuffer);
             IcmpCloseHandle(hIcmp);
             return roundTripTime;
         } else {
-            printf("\tCall to IcmpSendEcho failed.\n");
+            strError = "Call to IcmpSendEcho failed.";
             free(ReplyBuffer);
             IcmpCloseHandle(hIcmp);
-            return 1;
+            return -1;
         }
     } else {
-        printf("\tCall to IcmpSendEcho failed.\n");
         free(ReplyBuffer);
+        strError = "Call to IcmpSendEcho failed 2.";
         IcmpCloseHandle(hIcmp);
-        return 1;
+        return -1;
     }
 }
 
 DWORD WINAPI PingThreadFunction(LPVOID lpParam)
 {
     do {
-        DWORD msPing = Ping("8.8.8.8");
-        char szbuf[64];
-        sprintf_s(szbuf, "%ld ms", msPing);
-        std::string msg = GetTimeStr() + "  " + std::string(szbuf);
-        SetDlgItemText(hDlgGlobal, IDC_STATIC_PINGMS, msg.c_str());
-        LogToFile(std::string(szbuf));
-        Sleep(10000);
+        std::string strError;
+        long msPing = Ping(Settings.strRemoteIP.c_str(), strError);
+        if (msPing >= 0) {
+            char szbuf[64];
+            sprintf_s(szbuf, "%ld ms", msPing);
+            std::string msg = GetTimeStr() + "  " + std::string(szbuf);
+            SetDlgItemText(hDlgGlobal, IDC_STATIC_PINGMS, msg.c_str());
+            LogToFile(std::string(szbuf));
+            if (msPing >= Settings.msBadPing) {
+                msg = GetTimeStr() + "  Long ping time: ";
+                char szBuf[32];
+                _itoa_s(msPing, szBuf, 10);
+                msg += szBuf;
+                SetErrorText(msg.c_str());
+            }
+        } else {
+            std::string msg = GetTimeStr() + "  Error: " + strError;
+            SetDlgItemText(hDlgGlobal, IDC_STATIC_PINGMS, msg.c_str());
+            SetErrorText(msg.c_str());
+            LogToFile("Error: " + msg);
+        }
+        Sleep(Settings.msSleep);
     } while (true);
 
     return 0;
@@ -177,6 +206,8 @@ BOOL LaunchPingThread()
 
 INT_PTR CALLBACK DialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    static HBRUSH hbrBkgnd;
+
     switch (message)
     {
     case WM_INITDIALOG:
@@ -184,6 +215,8 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
         if (!LaunchPingThread()) {
             MessageBox(NULL, "Cannot launch ping thread", "Error", MB_OK | MB_ICONHAND);
         }
+        // Create a brush with the desired background color
+        hbrBkgnd = CreateSolidBrush(GetSysColor(COLOR_BTNFACE));
         return (INT_PTR)TRUE;
 
     case WM_CTLCOLORSTATIC:
@@ -193,7 +226,9 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
         if (GetDlgCtrlID(hwndStatic) == IDC_STATIC_ERROR) 
         {
             SetTextColor(hdcStatic, RGB(255, 0, 0)); // Set text color to red
-            return (INT_PTR)GetStockObject(NULL_BRUSH);
+            // Set the background color
+            SetBkColor(hdcStatic, GetSysColor(COLOR_BTNFACE));
+            return (INT_PTR)hbrBkgnd;
         }
         break;
     } 
