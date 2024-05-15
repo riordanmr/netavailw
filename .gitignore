@@ -30,3 +30,25 @@
 *.exe
 *.out
 *.app
+
+# MRR
+*.log
+*.db
+*.db-*
+*.suo
+*.ipch
+*.ilk
+*.pdb
+*.ipdb
+*.idb
+*.recipe
+*.tlog
+*.zip
+*.opendb
+*Absolute.txt
+*.filters
+*.user
+*.iobj
+*.aps
+*.res
+
