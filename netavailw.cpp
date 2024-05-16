@@ -39,6 +39,8 @@ struct struct_settings {
     DWORD       msSleep = 10000;
 } Settings;
 
+std::string strHostname;
+
 
 // Message handler for about box.
 INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
@@ -68,25 +70,6 @@ std::string GetTimeStr()
     char sztime[32];
     strftime(sztime, sizeof(sztime), "%Y-%m-%d %H:%M:%S", &mytm);
     return std::string(sztime);
-}
-
-void LogToFile(std::string msg)
-{
-    std::string fullMsg = GetTimeStr() + " " + msg;
-    std::ofstream file;
-
-    // Open the file in append mode
-    file.open("netavailw.log", std::ios_base::app);
-
-    if (file.is_open()) {
-        // Write the string to the file
-        file << fullMsg << std::endl;
-
-        // Close the file
-        file.close();
-    } else {
-        // error
-    }
 }
 
 void SetErrorText(const char* msg)
@@ -154,6 +137,34 @@ std::string GetLikelyLocalIP()
         }
     }
     return strIP;
+}
+
+// Log a record to the log file.
+// Records look like:
+// timestamp,action,hostname,localIP,remoteIP,details
+void LogToFile(std::string action, std::string details)
+{
+    std::string fullMsg = GetTimeStr() + "," + action;
+    fullMsg += "," + strHostname;
+    // We recompute the local IP address each time, because the user
+    // may have connected to a different network during program execution.
+    fullMsg += "," + GetLikelyLocalIP();
+    fullMsg += "," + Settings.strRemoteIP;
+    fullMsg += "," + details;
+    std::ofstream file;
+
+    // Open the file in append mode
+    file.open("netavailw.csv", std::ios_base::app);
+
+    if (file.is_open()) {
+        // Write the string to the file
+        file << fullMsg << std::endl;
+
+        // Close the file
+        file.close();
+    } else {
+        // error
+    }
 }
 
 long Ping(const char* address, std::string &strError)
@@ -226,10 +237,8 @@ DWORD WINAPI PingThreadFunction(LPVOID lpParam)
             std::string msg = GetTimeStr() + "  " + std::string(szbuf);
             SetDlgItemText(hDlgGlobal, IDC_STATIC_PINGMS, msg.c_str());
 
-            msg = GetLikelyLocalIP();
-            msg += " ";
-            msg += szbuf;
-            LogToFile(msg);
+            sprintf_s(szbuf, "%ld", msPing);
+            LogToFile("ping", szbuf);
             if (msPing >= Settings.msBadPing) {
                 msg = GetTimeStr() + "  Long ping time: ";
                 char szBuf[32];
@@ -241,7 +250,7 @@ DWORD WINAPI PingThreadFunction(LPVOID lpParam)
             std::string msg = GetTimeStr() + "  Error: " + strError;
             SetDlgItemText(hDlgGlobal, IDC_STATIC_PINGMS, msg.c_str());
             SetErrorText(msg.c_str());
-            LogToFile("Error: " + msg);
+            LogToFile("error", strError);
         }
         Sleep(Settings.msSleep);
     } while (true);
@@ -307,6 +316,11 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
             return (INT_PTR)TRUE;
         }
         break;
+
+    case WM_CLOSE:
+        LogToFile("stop", "");
+        EndDialog(hDlg, 0);
+        return TRUE;
     }
     return (INT_PTR)FALSE;
 }
@@ -323,6 +337,14 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
    hInst = hInstance; // Store instance handle in our global variable
+
+   // Record the local computer's name.  This will help log analysis.
+   char szComputerName[64];
+   DWORD size = sizeof(szComputerName);
+   GetComputerName(szComputerName, &size);
+   strHostname = szComputerName;
+
+   LogToFile("start", "");
 
    // Create a modal dialog box
    INT_PTR success = DialogBox(hInstance, MAKEINTRESOURCE(IDD_MAIN), NULL, DialogProc);
