@@ -8,7 +8,9 @@
 #include <icmpapi.h>
 #include <stdio.h>
 #include <fstream>
+#include <vector>
 #include <string>
+#include <sstream>
 #include <time.h>
 
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 
@@ -94,6 +96,66 @@ void SetErrorText(const char* msg)
     SetDlgItemText(hDlgGlobal, IDC_STATIC_ERROR, msg);
 }
 
+std::vector<std::string> splitIP(const std::string& s) {
+    std::vector<std::string> result;
+    std::istringstream iss(s);
+
+    for (std::string token; std::getline(iss, token, '.'); ) {
+        result.push_back(std::move(token));
+    }
+
+    return result;
+}
+
+std::vector<std::string> EnumerateLocalIPs() {
+    std::vector<std::string> vectIPs;
+    IP_ADAPTER_INFO AdapterInfo[16];       // Allocate information for up to 16 NICs
+    DWORD dwBufLen = sizeof(AdapterInfo);  // Save memory size of buffer
+
+    do {
+        DWORD dwStatus = GetAdaptersInfo(      // Call GetAdapterInfo
+            AdapterInfo,                 // [out] buffer to receive data
+            &dwBufLen);                  // [in] size of receive data buffer
+        if (dwStatus != ERROR_SUCCESS) {    // Check for errors
+            //printf("GetAdaptersInfo failed with error: %d\n", dwStatus);
+            break;
+        }
+
+        PIP_ADAPTER_INFO pAdapterInfo = AdapterInfo;// Contains pointer to current adapter info
+        do {
+            //printf("\nAdapter name: %s\n", pAdapterInfo->AdapterName);
+            //printf("Adapter description: %s\n", pAdapterInfo->Description);
+            //printf("Adapter IP address: %s\n", pAdapterInfo->IpAddressList.IpAddress.String);
+            vectIPs.push_back(std::string(pAdapterInfo->IpAddressList.IpAddress.String));
+            // Process next adapter
+            pAdapterInfo = pAdapterInfo->Next;
+        } while (pAdapterInfo);  // Terminate if last adapter
+    } while (false);
+    return vectIPs;
+}
+
+// Return the machine's local IP address.  Use the IP address most likely
+// to be actually used for the pinging.  The result is a numeric dotted IP.
+std::string GetLikelyLocalIP()
+{
+    std::string strIP;
+    std::vector<std::string> vectIPs = EnumerateLocalIPs();
+    for (std::vector<std::string>::iterator iter = vectIPs.begin();
+        vectIPs.end() != iter; iter++) {
+        std::vector<std::string> vectOctets = splitIP(*iter);
+        // Check the octets to look for a pattern that is likely NOT one
+        // of the weird IP addresses assigned by software like VMware. 
+        if (vectOctets.size() == 4 && vectOctets[0] == "192" && vectOctets[1] == "168") {
+            if (strIP.length() == 0) {
+                strIP = *iter;
+            } else if (vectOctets[3] != "1") {
+                strIP = *iter;
+            }
+        }
+    }
+    return strIP;
+}
+
 long Ping(const char* address, std::string &strError)
 {
     HANDLE hIcmp;
@@ -163,7 +225,11 @@ DWORD WINAPI PingThreadFunction(LPVOID lpParam)
             sprintf_s(szbuf, "%ld ms", msPing);
             std::string msg = GetTimeStr() + "  " + std::string(szbuf);
             SetDlgItemText(hDlgGlobal, IDC_STATIC_PINGMS, msg.c_str());
-            LogToFile(std::string(szbuf));
+
+            msg = GetLikelyLocalIP();
+            msg += " ";
+            msg += szbuf;
+            LogToFile(msg);
             if (msPing >= Settings.msBadPing) {
                 msg = GetTimeStr() + "  Long ping time: ";
                 char szBuf[32];
