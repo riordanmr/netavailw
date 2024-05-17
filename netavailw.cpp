@@ -303,11 +303,12 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
     } 
 
     case WM_COMMAND:
-        if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL)
-        {
+        if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL) {
             EndDialog(hDlg, LOWORD(wParam));
             PostQuitMessage(0);
             return (INT_PTR)TRUE;
+        } else if (LOWORD(wParam) == IDC_BUTTON_PROBLEMS) {
+            MessageBox(hDlg, "Viewing problems", "List of warning conditions", MB_OK);
         }
         break;
 
