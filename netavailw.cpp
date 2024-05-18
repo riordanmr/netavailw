@@ -26,6 +26,9 @@ HINSTANCE hInst;                                // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 HWND hDlgGlobal = NULL; // Global variable to store the dialog handle
+HWND hDlgProblems = NULL;  // Dialog showing problems
+
+typedef std::vector<std::string> TypVectStrings;
 
 struct struct_settings {
     std::string strRemoteIP = "8.8.8.8";
@@ -34,6 +37,7 @@ struct struct_settings {
 } Settings;
 
 std::string strHostname;
+TypVectStrings VectProblems;
 
 
 // Message handler for about box.
@@ -66,6 +70,24 @@ std::string GetTimeStr()
     return std::string(sztime);
 }
 
+std::string ErrorCodeToText(DWORD errorCode) {
+    LPVOID lpMsgBuf;
+
+    FormatMessage(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | 
+        FORMAT_MESSAGE_FROM_SYSTEM |
+        FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL,
+        errorCode,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPTSTR) &lpMsgBuf,
+        0, NULL );
+    
+    std::string strResult = (char*)lpMsgBuf;
+    LocalFree(lpMsgBuf);
+    return strResult;
+}
+
 void SetErrorText(const char* msg)
 {
     //std::string strFull = GetTimeStr() + " ";
@@ -73,8 +95,13 @@ void SetErrorText(const char* msg)
     SetDlgItemText(hDlgGlobal, IDC_STATIC_ERROR, msg);
 }
 
-std::vector<std::string> splitIP(const std::string& s) {
-    std::vector<std::string> result;
+void AppendProblemString(std::string text)
+{
+    VectProblems.push_back(text);
+}
+
+TypVectStrings splitIP(const std::string& s) {
+    TypVectStrings result;
     std::istringstream iss(s);
 
     for (std::string token; std::getline(iss, token, '.'); ) {
@@ -84,8 +111,8 @@ std::vector<std::string> splitIP(const std::string& s) {
     return result;
 }
 
-std::vector<std::string> EnumerateLocalIPs() {
-    std::vector<std::string> vectIPs;
+TypVectStrings EnumerateLocalIPs() {
+    TypVectStrings vectIPs;
     IP_ADAPTER_INFO AdapterInfo[16];       // Allocate information for up to 16 NICs
     DWORD dwBufLen = sizeof(AdapterInfo);  // Save memory size of buffer
 
@@ -116,10 +143,10 @@ std::vector<std::string> EnumerateLocalIPs() {
 std::string GetLikelyLocalIP()
 {
     std::string strIP;
-    std::vector<std::string> vectIPs = EnumerateLocalIPs();
-    for (std::vector<std::string>::iterator iter = vectIPs.begin();
+    TypVectStrings vectIPs = EnumerateLocalIPs();
+    for (TypVectStrings::iterator iter = vectIPs.begin();
         vectIPs.end() != iter; iter++) {
-        std::vector<std::string> vectOctets = splitIP(*iter);
+        TypVectStrings vectOctets = splitIP(*iter);
         // Check the octets to look for a pattern that is likely NOT one
         // of the weird IP addresses assigned by software like VMware. 
         if (vectOctets.size() == 4 && vectOctets[0] == "192" && vectOctets[1] == "168") {
@@ -158,6 +185,44 @@ void LogToFile(std::string action, std::string details)
         file.close();
     } else {
         // error
+    }
+}
+
+void ClearProblemsControl(HWND hwnd, int id)
+{
+    // Get the handle of the edit control
+    HWND hwndEdit = GetDlgItem(hwnd, id);
+
+    // Set the text of the control to an empty string
+    SetWindowText(hwndEdit, "");
+}
+
+void AppendTextToEditCtrl(HWND hwnd, int id, LPCSTR pszText)
+{
+    // Get the handle of the edit control
+    HWND hwndEdit = GetDlgItem(hwnd, id);
+
+    // Get the current selection
+    DWORD dwStart, dwEnd;
+    SendMessage(hwndEdit, EM_GETSEL, (WPARAM)&dwStart, (LPARAM)&dwEnd);
+
+    // Move the caret to the end of the text
+    int iLength = GetWindowTextLength(hwndEdit);
+    SendMessage(hwndEdit, EM_SETSEL, (WPARAM)iLength, (LPARAM)iLength);
+
+    // Insert the text at the current caret position
+    SendMessage(hwndEdit, EM_REPLACESEL, (WPARAM)FALSE, (LPARAM)pszText);
+
+    // Restore the previous selection
+    SendMessage(hwndEdit, EM_SETSEL, (WPARAM)dwStart, (LPARAM)dwEnd);
+}
+
+void PopulateProblemsControl(HWND hDlg)
+{
+    ClearProblemsControl(hDlg, IDC_EDIT_PROBLEMS);
+    for (TypVectStrings::iterator iter = VectProblems.begin(); iter != VectProblems.end(); iter++) {
+        std::string strProblem = *iter + "\r\n";
+        AppendTextToEditCtrl(hDlg, IDC_EDIT_PROBLEMS, strProblem.c_str());
     }
 }
 
@@ -239,11 +304,15 @@ DWORD WINAPI PingThreadFunction(LPVOID lpParam)
                 _itoa_s(msPing, szBuf, 10);
                 msg += szBuf;
                 SetErrorText(msg.c_str());
+                AppendProblemString(msg);
+                PopulateProblemsControl(hDlgProblems);
             }
         } else {
             std::string msg = GetTimeStr() + "  Error: " + strError;
             SetDlgItemText(hDlgGlobal, IDC_STATIC_PINGMS, msg.c_str());
             SetErrorText(msg.c_str());
+            AppendProblemString(msg);
+            PopulateProblemsControl(hDlgProblems);
             LogToFile("error", strError);
         }
         Sleep(Settings.msSleep);
@@ -271,6 +340,26 @@ BOOL LaunchPingThread()
         bOK = FALSE;
     }
     return bOK;
+}
+
+INT_PTR CALLBACK DialogProcProblems(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    switch (message)
+    {
+    case WM_INITDIALOG:
+        hDlgProblems = hDlg;
+        PopulateProblemsControl(hDlg);
+        return TRUE;
+
+    case WM_COMMAND:
+        if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL)
+        {
+            EndDialog(hDlg, LOWORD(wParam));
+            return TRUE;
+        }
+        break;
+    }
+    return FALSE;
 }
 
 INT_PTR CALLBACK DialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
@@ -308,7 +397,8 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
             PostQuitMessage(0);
             return (INT_PTR)TRUE;
         } else if (LOWORD(wParam) == IDC_BUTTON_PROBLEMS) {
-            MessageBox(hDlg, "Viewing problems", "List of warning conditions", MB_OK);
+            // Create and show the non-modal dialog box
+            CreateDialog(hInst, MAKEINTRESOURCE(IDD_PROBLEMS), hDlg, (DLGPROC)DialogProcProblems);
         }
         break;
 
