@@ -141,12 +141,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="CritSec.h" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="netavailw.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CritSec.cpp" />
     <ClCompile Include="netavailw.cpp" />
   </ItemGroup>
   <ItemGroup>

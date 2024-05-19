@@ -12,6 +12,7 @@
 #include <string>
 #include <sstream>
 #include <time.h>
+#include "CritSec.h"
 
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 
 #include <winsock2.h>
@@ -38,6 +39,7 @@ struct struct_settings {
 
 std::string strHostname;
 TypVectStrings VectProblems;
+CCritSec CritSecProblems;  // controls access to VectProblems
 
 
 // Message handler for about box.
@@ -97,6 +99,7 @@ void SetErrorText(const char* msg)
 
 void AppendProblemString(std::string text)
 {
+    CCritSecInScope CritSec(CritSecProblems.GetCritSecPtr());
     VectProblems.push_back(text);
 }
 
@@ -219,6 +222,7 @@ void AppendTextToEditCtrl(HWND hwnd, int id, LPCSTR pszText)
 
 void PopulateProblemsControl(HWND hDlg)
 {
+    CCritSecInScope CritSec(CritSecProblems.GetCritSecPtr());
     ClearProblemsControl(hDlg, IDC_EDIT_PROBLEMS);
     for (TypVectStrings::iterator iter = VectProblems.begin(); iter != VectProblems.end(); iter++) {
         std::string strProblem = *iter + "\r\n";
