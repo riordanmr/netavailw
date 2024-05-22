@@ -29,7 +29,34 @@ WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 HWND hDlgGlobal = NULL; // Global variable to store the dialog handle
 HWND hDlgProblems = NULL;  // Dialog showing problems
 
-typedef std::vector<std::string> TypVectStrings;
+// Struct used to store the descriptions of certain error codes that
+// are not handled properly by FormatMessage.
+struct StructErrorCodes {
+    DWORD ec_num;
+    const char* ec_ident;
+    const char* ec_text;
+} AryErrorCodes[] = {
+    {11001 , "IP_BUF_TOO_SMALL", "The reply buffer was too small."},
+    {11002 , "IP_DEST_NET_UNREACHABLE", "The destination network was unreachable."},
+    {11003 , "IP_DEST_HOST_UNREACHABLE", "The destination host was unreachable."},
+    {11004 , "IP_DEST_PROT_UNREACHABLE", "The destination protocol was unreachable."},
+    {11005 , "IP_DEST_PORT_UNREACHABLE", "The destination port was unreachable."},
+    {11006 , "IP_NO_RESOURCES", "Insufficient IP resources were available."},
+    {11007 , "IP_BAD_OPTION", "A bad IP option was specified."},
+    {11008 , "IP_HW_ERROR", "A hardware error occurred."},
+    {11009 , "IP_PACKET_TOO_BIG", "The packet was too big."},
+    {11010 , "IP_REQ_TIMED_OUT", "The request timed out."},
+    {11011 , "IP_BAD_REQ", "A bad request."},
+    {11012 , "IP_BAD_ROUTE", "A bad route."},
+    {11013 , "IP_TTL_EXPIRED_TRANSIT", "The time to live (TTL) expired in transit."},
+    {11014 , "IP_TTL_EXPIRED_REASSEM", "The time to live expired during fragment reassembly."},
+    {11015 , "IP_PARAM_PROBLEM", "A parameter problem."},
+    {11016 , "IP_SOURCE_QUENCH", "Datagrams are arriving too fast to be processed and datagrams may have been discarded."},
+    {11017 , "IP_OPTION_TOO_BIG", "An IP option was too big."},
+    {11018 , "IP_BAD_DESTINATION", "A bad destination."},
+    {11050 , "IP_GENERAL_FAILURE", "A general failure. This error can be returned for some malformed ICMP packets."},
+    {0, "IP_SUCCESS", "No error."}
+};
 
 struct struct_settings {
     std::string strRemoteIP = "8.8.8.8";
@@ -38,6 +65,7 @@ struct struct_settings {
 } Settings;
 
 std::string strHostname;
+typedef std::vector<std::string> TypVectStrings;
 TypVectStrings VectProblems;
 CCritSec CritSecProblems;  // controls access to VectProblems
 
@@ -72,22 +100,49 @@ std::string GetTimeStr()
     return std::string(sztime);
 }
 
-std::string ErrorCodeToText(DWORD errorCode) {
-    LPVOID lpMsgBuf;
+// Map an ICMP error code to a textual description.
+// Exit:   Returns the description, or "" if the code wasn't recognized.
+std::string ErrorCodeToTextSpecial(DWORD errorCode)
+{
+    std::string result;
+    for (int j = 0; AryErrorCodes[j].ec_num > 0; j++) {
+        if (AryErrorCodes[j].ec_num == errorCode) {
+            result = AryErrorCodes[j].ec_text;
+            break;
+        }
+    }
+    return result;
+}
 
-    FormatMessage(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | 
-        FORMAT_MESSAGE_FROM_SYSTEM |
-        FORMAT_MESSAGE_IGNORE_INSERTS,
-        NULL,
-        errorCode,
-        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-        (LPTSTR) &lpMsgBuf,
-        0, NULL );
-    
-    std::string strResult = (char*)lpMsgBuf;
-    LocalFree(lpMsgBuf);
-    return strResult;
+std::string ErrorCodeToText(DWORD errorCode) {
+    char szNum[20];
+    _itoa_s(errorCode, szNum, 10);
+    std::string strPrefix = "Error ";
+    strPrefix += szNum;
+    strPrefix += ": ";
+
+    std::string strResult = ErrorCodeToTextSpecial(errorCode);
+    if (strResult.length() == 0) {
+        // It's not an ICMP error code, so use the general Windows function
+        // to translate the error code.
+        char szMsg[256];
+        szMsg[0] = '\0';
+
+        DWORD nChars = FormatMessage(
+            FORMAT_MESSAGE_FROM_SYSTEM |
+            FORMAT_MESSAGE_IGNORE_INSERTS,
+            NULL,
+            errorCode,
+            MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+            szMsg,
+            sizeof(szMsg), NULL);
+
+        if (0 == nChars) {
+            sprintf_s(szMsg, "Cannot convert error code %u (%x)", errorCode, errorCode);
+        }
+        strResult = szMsg;
+    }
+    return strPrefix + strResult;
 }
 
 void SetErrorText(const char* msg)
@@ -265,7 +320,7 @@ long Ping(const char* address, std::string &strError)
         PICMP_ECHO_REPLY pEchoReply = (PICMP_ECHO_REPLY)ReplyBuffer;
         struct in_addr ReplyAddr;
         ReplyAddr.S_un.S_addr = pEchoReply->Address;
-        printf("\tSent icmp message to %s\n", address);
+        //printf("\tSent icmp message to %s\n", address);
         if (dwRetVal > 0) {
             //printf("\tReceived %ld icmp message responses\n", dwRetVal);
             //printf("\tInformation from the first response:\n");
@@ -276,14 +331,14 @@ long Ping(const char* address, std::string &strError)
             IcmpCloseHandle(hIcmp);
             return roundTripTime;
         } else {
-            strError = "Call to IcmpSendEcho failed.";
+            strError = ErrorCodeToText(GetLastError());
             free(ReplyBuffer);
             IcmpCloseHandle(hIcmp);
             return -1;
         }
     } else {
         free(ReplyBuffer);
-        strError = "Call to IcmpSendEcho failed 2.";
+        strError = ErrorCodeToText(GetLastError());
         IcmpCloseHandle(hIcmp);
         return -1;
     }
@@ -312,7 +367,7 @@ DWORD WINAPI PingThreadFunction(LPVOID lpParam)
                 PopulateProblemsControl(hDlgProblems);
             }
         } else {
-            std::string msg = GetTimeStr() + "  Error: " + strError;
+            std::string msg = GetTimeStr() + "  " + strError;
             SetDlgItemText(hDlgGlobal, IDC_STATIC_PINGMS, msg.c_str());
             SetErrorText(msg.c_str());
             AppendProblemString(msg);
