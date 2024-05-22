@@ -1,0 +1,57 @@
+IP_BUF_TOO_SMALL
+11001
+The reply buffer was too small.
+IP_DEST_NET_UNREACHABLE
+11002
+The destination network was unreachable.
+IP_DEST_HOST_UNREACHABLE
+11003
+The destination host was unreachable.
+IP_DEST_PROT_UNREACHABLE
+11004
+The destination protocol was unreachable.
+IP_DEST_PORT_UNREACHABLE
+11005
+The destination port was unreachable.
+IP_NO_RESOURCES
+11006
+Insufficient IP resources were available.
+IP_BAD_OPTION
+11007
+A bad IP option was specified.
+IP_HW_ERROR
+11008
+A hardware error occurred.
+IP_PACKET_TOO_BIG
+11009
+The packet was too big.
+IP_REQ_TIMED_OUT
+11010
+The request timed out.
+IP_BAD_REQ
+11011
+A bad request.
+IP_BAD_ROUTE
+11012
+A bad route.
+IP_TTL_EXPIRED_TRANSIT
+11013
+The time to live (TTL) expired in transit.
+IP_TTL_EXPIRED_REASSEM
+11014
+The time to live expired during fragment reassembly.
+IP_PARAM_PROBLEM
+11015
+A parameter problem.
+IP_SOURCE_QUENCH
+11016
+Datagrams are arriving too fast to be processed and datagrams may have been discarded.
+IP_OPTION_TOO_BIG
+11017
+An IP option was too big.
+IP_BAD_DESTINATION
+11018
+A bad destination.
+IP_GENERAL_FAILURE
+11050
+A general failure. This error can be returned for some malformed ICMP packets.

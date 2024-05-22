@@ -52,3 +52,4 @@
 *.aps
 *.res
 *.csv
+misc/icmp-errors.c
