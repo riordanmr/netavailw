@@ -63,6 +63,41 @@ struct struct_settings {
     int         msBadPing = 400;
     int         msPingTimeout = 3000;
     int         secsSleep = 10;
+
+    // Load settings from the registry (user-specific).
+    // If the registry values are not present, the settings are not changed.
+    void Load() {
+        HKEY hKey;
+        if (RegOpenKeyEx(HKEY_CURRENT_USER, "Software\\netavailw", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+            char buffer[256];
+            DWORD bufferSize = sizeof(buffer);
+            if (RegGetValue(hKey, NULL, "RemoteIP", RRF_RT_REG_SZ, NULL, buffer, &bufferSize) == ERROR_SUCCESS) {
+                strRemoteIP = buffer;
+            }
+            bufferSize = sizeof(msBadPing);
+            RegGetValue(hKey, NULL, "msBadPing", RRF_RT_REG_DWORD, NULL, &msBadPing, &bufferSize);
+            bufferSize = sizeof(msPingTimeout);
+            RegGetValue(hKey, NULL, "msPingTimeout", RRF_RT_REG_DWORD, NULL, &msPingTimeout, &bufferSize);
+            bufferSize = sizeof(secsSleep);
+            RegGetValue(hKey, NULL, "secsSleep", RRF_RT_REG_DWORD, NULL, &secsSleep, &bufferSize);
+
+            RegCloseKey(hKey);
+        }
+    }
+
+    // Save the settings to the registry (user-specific).
+    void Save() {
+        HKEY hKey;
+        DWORD dwDisposition;
+        if (RegCreateKeyEx(HKEY_CURRENT_USER, "Software\\netavailw", 0, NULL, 0, KEY_WRITE, NULL, &hKey, &dwDisposition) == ERROR_SUCCESS) {
+            RegSetValueEx(hKey, "RemoteIP", 0, REG_SZ, (BYTE*)strRemoteIP.c_str(), strRemoteIP.size() + 1);
+            RegSetValueEx(hKey, "msBadPing", 0, REG_DWORD, (BYTE*)&msBadPing, sizeof(msBadPing));
+            RegSetValueEx(hKey, "msPingTimeout", 0, REG_DWORD, (BYTE*)&msPingTimeout, sizeof(msPingTimeout));
+            RegSetValueEx(hKey, "secsSleep", 0, REG_DWORD, (BYTE*)&secsSleep, sizeof(secsSleep));
+            
+            RegCloseKey(hKey);
+        }
+    }
 } Settings;
 
 std::string strHostname;
@@ -440,6 +475,8 @@ BOOL CALLBACK DialogProcSettings(HWND hwnd, UINT Message, WPARAM wParam, LPARAM 
                         Settings.secsSleep = 1;
                     }
 
+                    Settings.Save();
+
                     EndDialog(hwnd, IDOK);
                     return TRUE;
                 case IDCANCEL:
@@ -542,6 +579,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    strHostname = szComputerName;
 
    LogToFile("start", "");
+   Settings.Load();
 
    // Create a modal dialog box
    INT_PTR success = DialogBox(hInstance, MAKEINTRESOURCE(IDD_MAIN), NULL, DialogProc);
