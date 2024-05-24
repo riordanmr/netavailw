@@ -60,8 +60,9 @@ struct StructErrorCodes {
 
 struct struct_settings {
     std::string strRemoteIP = "8.8.8.8";
-    long        msBadPing = 400;
-    DWORD       msSleep = 10000;
+    int         msBadPing = 400;
+    int         msPingTimeout = 3000;
+    int         secsSleep = 10;
 } Settings;
 
 std::string strHostname;
@@ -315,7 +316,7 @@ long Ping(const char* address, std::string &strError)
     }
 
     dwRetVal = IcmpSendEcho(hIcmp, ipaddr, SendData, sizeof(SendData),
-        NULL, ReplyBuffer, ReplySize, 1000);
+        NULL, ReplyBuffer, ReplySize, Settings.msPingTimeout);
     if (dwRetVal != 0) {
         PICMP_ECHO_REPLY pEchoReply = (PICMP_ECHO_REPLY)ReplyBuffer;
         struct in_addr ReplyAddr;
@@ -374,7 +375,7 @@ DWORD WINAPI PingThreadFunction(LPVOID lpParam)
             PopulateProblemsControl(hDlgProblems);
             LogToFile("error", strError);
         }
-        Sleep(Settings.msSleep);
+        Sleep(Settings.secsSleep * 1000);
     } while (true);
 
     return 0;
@@ -399,6 +400,55 @@ BOOL LaunchPingThread()
         bOK = FALSE;
     }
     return bOK;
+}
+
+// Dialog procedure for the Settings dialog.
+BOOL CALLBACK DialogProcSettings(HWND hwnd, UINT Message, WPARAM wParam, LPARAM lParam)
+{
+    char buffer[40];
+
+    switch(Message)
+    {
+        case WM_INITDIALOG:
+            SetDlgItemText(hwnd, IDC_EDIT_IP, Settings.strRemoteIP.c_str());
+
+            sprintf_s(buffer, "%d", Settings.msPingTimeout);
+            SetDlgItemText(hwnd, IDC_EDIT_TIMEOUT, buffer);
+
+            sprintf_s(buffer, "%d", Settings.msBadPing);
+            SetDlgItemText(hwnd, IDC_EDIT_TOO_SLOW, buffer);
+
+            sprintf_s(buffer, "%d", Settings.secsSleep);
+            SetDlgItemText(hwnd, IDC_EDIT_SECS_BETWEEN, buffer);
+            return TRUE;
+        case WM_COMMAND:
+            switch(LOWORD(wParam))
+            {
+                case IDOK:
+                    GetDlgItemText(hwnd, IDC_EDIT_IP, buffer, sizeof(buffer));
+                    Settings.strRemoteIP = buffer;
+
+                    GetDlgItemText(hwnd, IDC_EDIT_TIMEOUT, buffer, sizeof(buffer));
+                    Settings.msPingTimeout = atoi(buffer);
+
+                    GetDlgItemText(hwnd, IDC_EDIT_TOO_SLOW, buffer, sizeof(buffer));
+                    Settings.msBadPing = atoi(buffer);
+
+                    GetDlgItemText(hwnd, IDC_EDIT_SECS_BETWEEN, buffer, sizeof(buffer));
+                    Settings.secsSleep = atoi(buffer);
+                    if (Settings.secsSleep <= 1) {
+                        Settings.secsSleep = 1;
+                    }
+
+                    EndDialog(hwnd, IDOK);
+                    return TRUE;
+                case IDCANCEL:
+                    EndDialog(hwnd, IDCANCEL);
+                    return TRUE;
+            }
+            break;
+    }
+    return FALSE;
 }
 
 INT_PTR CALLBACK DialogProcProblems(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
@@ -458,6 +508,9 @@ INT_PTR CALLBACK DialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
         } else if (LOWORD(wParam) == IDC_BUTTON_PROBLEMS) {
             // Create and show the non-modal dialog box
             CreateDialog(hInst, MAKEINTRESOURCE(IDD_PROBLEMS), hDlg, (DLGPROC)DialogProcProblems);
+        } else if (LOWORD(wParam) == IDC_BUTTON_SETTINGS) {
+            // Create and show the non-modal dialog box
+            DialogBox(hInst, MAKEINTRESOURCE(IDD_SETTINGS), hDlg, DialogProcSettings);
         }
         break;
 
